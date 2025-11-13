@@ -1,0 +1,44 @@
+{
+  // Disable ESLint to avoid conflicts with Biome
+  "eslint.enable": false,
+
+  // Set Biome as the default formatter for supported languages
+  "editor.defaultFormatter": "biomejs.biome",
+
+  // Enable format on save
+  "editor.formatOnSave": true,
+
+  // Configure quick suggestions for IntelliSense
+  // "editor.quickSuggestions": {
+  //   "strings": "on"
+  // },
+
+  // Enable code actions on save (for linting fixes)
+  "editor.codeActionsOnSave": {
+    "source.fixAll.biome": "explicit"
+  },
+
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+
+  // Language-specific formatter settings
+  "[javascript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  }
+}
