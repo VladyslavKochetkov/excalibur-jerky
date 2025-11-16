@@ -1,4 +1,5 @@
-export function Footer() {
+export async function Footer() {
+  "use cache";
   const currentYear = new Date().getFullYear();
 
   return (
@@ -17,10 +18,16 @@ export function Footer() {
 
           {/* Optional Links */}
           <div className="flex gap-6 text-sm text-muted-foreground">
-            <a href="/about-us" className="hover:text-foreground transition-colors">
+            <a
+              href="/about-us"
+              className="hover:text-foreground transition-colors"
+            >
               About Us
             </a>
-            <a href="/contact" className="hover:text-foreground transition-colors">
+            <a
+              href="/contact"
+              className="hover:text-foreground transition-colors"
+            >
               Contact
             </a>
           </div>

@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { type FC, useState, useEffect } from "react";
+import { type FC, useEffect, useState } from "react";
 import { FaShoppingBag } from "react-icons/fa";
 import { FaMagnifyingGlass } from "react-icons/fa6";
+import type { SanityProduct } from "@/sanity/lib/products";
+import { getAllProducts } from "@/sanity/lib/products";
 import { useCart } from "../../contexts/CartContext";
 import { CartModal } from "../CartModal";
 import { SearchModal } from "../SearchModal";
 import { Button } from "../ui/button";
 import { NavigationItem } from "./NavigationItem";
-import type { SanityProduct } from "@/sanity/lib/products";
-import { getAllProducts } from "@/sanity/lib/products";
 
 export const Navigation: FC = () => {
   const { totalItems, isCartOpen, openCart, closeCart } = useCart();
@@ -40,7 +40,7 @@ export const Navigation: FC = () => {
           <FaMagnifyingGlass className="size-5" />
         </Button>
         <h1 className="text-xl font-medium">
-          <Link href="https://www.excaliburjerky.com">Excalibur Jerky Co.</Link>
+          <Link href="/">Excalibur Jerky Co.</Link>
         </h1>
         <Button
           variant="light"
@@ -67,7 +67,11 @@ export const Navigation: FC = () => {
       <div className="h-px w-full bg-muted" />
 
       {/* Search Modal */}
-      <SearchModal isOpen={isSearchOpen} onClose={closeSearch} products={products} />
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={closeSearch}
+        products={products}
+      />
 
       {/* Cart Modal */}
       <CartModal isOpen={isCartOpen} onClose={closeCart} />
