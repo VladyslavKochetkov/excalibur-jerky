@@ -1,21 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import type { FC } from "react";
+import { type FC, useState, useEffect } from "react";
 import { FaShoppingBag } from "react-icons/fa";
 import { FaMagnifyingGlass } from "react-icons/fa6";
 import { useCart } from "../../contexts/CartContext";
 import { CartModal } from "../CartModal";
+import { SearchModal } from "../SearchModal";
 import { Button } from "../ui/button";
 import { NavigationItem } from "./NavigationItem";
+import type { SanityProduct } from "@/sanity/lib/products";
+import { getAllProducts } from "@/sanity/lib/products";
 
 export const Navigation: FC = () => {
   const { totalItems, isCartOpen, openCart, closeCart } = useCart();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [products, setProducts] = useState<SanityProduct[]>([]);
+
+  // Fetch products for search
+  useEffect(() => {
+    async function fetchProducts() {
+      try {
+        const allProducts = await getAllProducts();
+        setProducts(allProducts);
+      } catch (error) {
+        console.error("Failed to fetch products:", error);
+      }
+    }
+    fetchProducts();
+  }, []);
+
+  const openSearch = () => setIsSearchOpen(true);
+  const closeSearch = () => setIsSearchOpen(false);
 
   return (
     <>
       <section className="container flex justify-between mx-auto py-4 items-center gap-2 px-2 lg:px-0">
-        <Button variant="light" size="icon">
+        <Button variant="light" size="icon" onClick={openSearch}>
           <FaMagnifyingGlass className="size-5" />
         </Button>
         <h1 className="text-xl font-medium">
@@ -44,6 +65,9 @@ export const Navigation: FC = () => {
         </ol>
       </nav>
       <div className="h-px w-full bg-muted" />
+
+      {/* Search Modal */}
+      <SearchModal isOpen={isSearchOpen} onClose={closeSearch} products={products} />
 
       {/* Cart Modal */}
       <CartModal isOpen={isCartOpen} onClose={closeCart} />

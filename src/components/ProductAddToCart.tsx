@@ -49,17 +49,17 @@ export function ProductAddToCart({ product }: ProductAddToCartProps) {
   const inStock = product.inventory?.available ?? false;
   const totalAvailableBaseUnits = product.inventory?.quantity;
 
-  // Calculate base units already used by ALL variants of this product in cart
-  const baseUnitsUsedInCart = items
-    .filter(item => item.productId === product.stripeProductId)
+  // Calculate base units used by OTHER variants of this product in cart (excluding current variant)
+  const baseUnitsUsedByOthers = items
+    .filter(item => item.productId === product.stripeProductId && item.id !== cartItemId)
     .reduce((sum, item) => sum + (item.baseUnits * item.quantity), 0);
 
-  // Remaining base units = total - what's used in cart
+  // Remaining base units = total - what's used by others (not including current variant)
   const remainingBaseUnits = totalAvailableBaseUnits !== null
-    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedInCart)
+    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedByOthers)
     : null;
 
-  // Max for THIS specific size variant
+  // Max for THIS specific size variant (total you can have, including what's already in cart)
   const maxQuantity = remainingBaseUnits !== null && selectedPrice
     ? Math.floor(remainingBaseUnits / selectedPrice.baseUnits)
     : null;
@@ -80,6 +80,7 @@ export function ProductAddToCart({ product }: ProductAddToCartProps) {
       quantity: 1,
       baseUnits: selectedPrice.baseUnits,
       maxQuantity: maxQuantity,
+      totalInventory: totalAvailableBaseUnits,
       imageUrl: product.primaryImageUrl,
     });
 
@@ -129,7 +130,15 @@ export function ProductAddToCart({ product }: ProductAddToCartProps) {
       {/* Availability Info */}
       {inStock && maxQuantity !== null && (
         <div className="text-sm text-muted-foreground">
-          <span className="font-medium">{maxQuantity}</span> available for this size
+          {quantityInCart > 0 ? (
+            <>
+              <span className="font-medium">{Math.max(0, maxQuantity - quantityInCart)}</span> more available for this size
+            </>
+          ) : (
+            <>
+              <span className="font-medium">{maxQuantity}</span> available for this size
+            </>
+          )}
         </div>
       )}
 

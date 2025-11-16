@@ -78,6 +78,7 @@ export function ProductCard({ product }: ProductCardProps) {
       quantity: 1,
       baseUnits: selectedPrice.baseUnits,
       maxQuantity: maxQuantity,
+      totalInventory: totalAvailableBaseUnits,
       imageUrl: product.primaryImageUrl,
     });
 
@@ -109,17 +110,17 @@ export function ProductCard({ product }: ProductCardProps) {
   const inStock = product.inventory?.available ?? false;
   const totalAvailableBaseUnits = product.inventory?.quantity;
 
-  // Calculate base units already used by ALL variants of this product in cart
-  const baseUnitsUsedInCart = items
-    .filter(item => item.productId === product.stripeProductId)
+  // Calculate base units used by OTHER variants of this product in cart (excluding current variant)
+  const baseUnitsUsedByOthers = items
+    .filter(item => item.productId === product.stripeProductId && item.id !== cartItemId)
     .reduce((sum, item) => sum + (item.baseUnits * item.quantity), 0);
 
-  // Remaining base units = total - what's used in cart
+  // Remaining base units = total - what's used by others (not including current variant)
   const remainingBaseUnits = totalAvailableBaseUnits !== null
-    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedInCart)
+    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedByOthers)
     : null;
 
-  // Max for THIS specific size variant
+  // Max for THIS specific size variant (total you can have, including what's already in cart)
   const maxQuantity = remainingBaseUnits !== null && selectedPrice
     ? Math.floor(remainingBaseUnits / selectedPrice.baseUnits)
     : null;
@@ -128,15 +129,15 @@ export function ProductCard({ product }: ProductCardProps) {
   return (
     <Link
       href={`/catalog/${product._id}`}
-      className="group block relative"
+      className="group block relative h-full"
     >
       {/* Modern Card Container with Glass Morphism */}
-      <div className="relative bg-gradient-to-br from-zinc-900/90 to-zinc-950/90 backdrop-blur-sm border border-zinc-800/50 rounded-2xl overflow-hidden transition-all duration-500 hover:border-zinc-700 hover:shadow-2xl hover:shadow-zinc-900/50 hover:-translate-y-1">
+      <div className="relative h-full flex flex-col bg-gradient-to-br from-zinc-900/90 to-zinc-950/90 backdrop-blur-sm border border-zinc-800/50 rounded-2xl overflow-hidden transition-all duration-500 hover:border-zinc-700 hover:shadow-2xl hover:shadow-zinc-900/50 hover:-translate-y-1">
         {/* Subtle glow effect on hover */}
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-700/0 via-zinc-700/0 to-zinc-700/0 group-hover:from-zinc-600/10 group-hover:via-zinc-700/5 group-hover:to-zinc-800/10 transition-all duration-500 pointer-events-none" />
 
         {/* Product Image */}
-        <div className="relative aspect-[4/3] bg-zinc-900/50 overflow-hidden cursor-pointer">
+        <div className="relative aspect-[4/3] bg-zinc-900/50 overflow-hidden cursor-pointer flex-shrink-0">
           {product.primaryImageUrl ? (
             <>
               <Image
@@ -171,7 +172,7 @@ export function ProductCard({ product }: ProductCardProps) {
         </div>
 
         {/* Product Info */}
-        <div className="relative p-4 space-y-3">
+        <div className="relative p-4 space-y-3 flex-grow flex flex-col">
           <h2 className="text-base font-bold mb-1 line-clamp-1 text-white">{product.name}</h2>
 
           <div className="flex items-baseline justify-between">
@@ -189,7 +190,9 @@ export function ProductCard({ product }: ProductCardProps) {
               <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {maxQuantity !== null
-                  ? `${maxQuantity} left`
+                  ? quantityInCart > 0
+                    ? `${Math.max(0, maxQuantity - quantityInCart)} more available`
+                    : `${maxQuantity} available`
                   : "In Stock"}
               </span>
             ) : (
@@ -231,6 +234,7 @@ export function ProductCard({ product }: ProductCardProps) {
           )}
 
           {/* Add to Cart Button or Quantity Controls */}
+          <div className="mt-auto">
           {quantityInCart > 0 ? (
             // Show quantity controls when item is in cart - Modern Style
             <div className="w-full flex gap-2">
@@ -271,6 +275,7 @@ export function ProductCard({ product }: ProductCardProps) {
                   : "Out of Stock"}
             </button>
           )}
+          </div>
         </div>
       </div>
     </Link>

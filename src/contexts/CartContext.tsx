@@ -13,6 +13,7 @@ export interface CartItem {
   quantity: number; // Number of items in cart
   baseUnits: number; // Base units per item (4oz = 1, 8oz = 2, etc.)
   maxQuantity?: number | null; // Max items available (accounting for base units)
+  totalInventory?: number | null; // Total inventory in base units (from Stripe)
   imageUrl?: string; // Optional product image URL
 }
 
@@ -95,9 +96,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const addItem = (item: CartItem) => {
     setItems((prev) => {
       // Store inventory information when item is first added
-      if (item.maxQuantity !== null && item.maxQuantity !== undefined && !productInventory.has(item.productId)) {
-        const totalAvailable = item.maxQuantity * item.baseUnits;
-        setProductInventory(new Map(productInventory.set(item.productId, totalAvailable)));
+      if (item.totalInventory !== null && item.totalInventory !== undefined && !productInventory.has(item.productId)) {
+        setProductInventory(new Map(productInventory.set(item.productId, item.totalInventory)));
       }
 
       const existing = prev.find((i) => i.id === item.id);
