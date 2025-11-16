@@ -77,7 +77,7 @@ export default async function Home() {
         <img
           src={desktopImageUrl}
           alt={landing.imageText || "Landing"}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain md:object-cover"
         />
       </picture>
 
