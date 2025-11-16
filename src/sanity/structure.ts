@@ -13,10 +13,18 @@ export const structure: StructureResolver = (S) =>
             .schemaType('landing')
             .documentId('landing')
         ),
+      // Singleton about us page
+      S.listItem()
+        .title('About Us Page')
+        .child(
+          S.document()
+            .schemaType('aboutUs')
+            .documentId('aboutUs')
+        ),
       // Divider
       S.divider(),
       // Rest of the document types
       ...S.documentTypeListItems().filter(
-        (item) => item.getId() !== 'landing'
+        (item) => !['landing', 'aboutUs'].includes(item.getId() ?? '')
       ),
     ])

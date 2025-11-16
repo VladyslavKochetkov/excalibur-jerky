@@ -46,7 +46,7 @@ export default async function CatalogPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <CartValidator products={mergedProducts} />
+      <CartValidator products={products} />
       <div className="container mx-auto px-4 py-12 md:py-16">
         {/* Page Header */}
         <div className="text-center mb-12">

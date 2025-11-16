@@ -9,10 +9,15 @@ interface ProductCardProps {
   product: {
     _id: string;
     stripeProductId: string;
-    stripePriceId: string;
+    prices: Array<{
+      priceId: string;
+      nickname: string | null;
+      amount: number; // in cents
+      baseUnits: number;
+    }>;
     name: string;
     price: number;
-    originalPrice?: number;
+    currentlyDiscounted?: number; // Discount percentage (0-100)
     subtitle?: string; // Short text subtitle from Stripe
     description?: unknown[]; // Rich text description from Sanity
     isFeatured: boolean;
@@ -31,23 +36,49 @@ export function ProductCard({ product }: ProductCardProps) {
   const { addItem, items, updateQuantity } = useCart();
   const [isAdding, setIsAdding] = useState(false);
 
-  // Check if item is in cart
-  const cartItem = items.find((item) => item.id === product._id);
+  // All products should now have prices array (use empty string as fallback)
+  // Default to 4oz variant (baseUnits = 1) or fall back to first price
+  const defaultPrice = product.prices?.find(p => p.baseUnits === 1) || product.prices?.[0];
+  const [selectedPriceId, setSelectedPriceId] = useState(defaultPrice?.priceId || "");
+
+  // Handle products without prices (shouldn't happen but safety check)
+  if (!product.prices || product.prices.length === 0) {
+    return null; // Don't render products without prices
+  }
+
+  // Get selected price details
+  const selectedPrice = product.prices.find(p => p.priceId === selectedPriceId) || product.prices[0];
+  const selectedPriceAmount = selectedPrice.amount / 100;
+
+  // Calculate original price from discount percentage
+  const originalPrice = product.currentlyDiscounted && product.currentlyDiscounted > 0
+    ? selectedPriceAmount / (1 - product.currentlyDiscounted / 100)
+    : undefined;
+
+  // Check if item is in cart (cart item ID is productId-priceId)
+  const cartItemId = `${product.stripeProductId}-${selectedPriceId}`;
+  const cartItem = items.find((item) => item.id === cartItemId);
   const quantityInCart = cartItem?.quantity || 0;
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault(); // Prevent navigation when clicking add to cart
     e.stopPropagation();
 
+    if (!selectedPrice) return;
+
     setIsAdding(true);
 
     addItem({
-      id: product._id,
+      id: cartItemId,
+      productId: product.stripeProductId,
+      priceId: selectedPriceId,
       name: product.name,
-      price: product.price,
+      sizeNickname: selectedPrice.nickname || "Default",
+      price: selectedPriceAmount,
       quantity: 1,
-      stripePriceId: product.stripePriceId,
-      maxQuantity: product.inventory?.quantity,
+      baseUnits: selectedPrice.baseUnits,
+      maxQuantity: maxQuantity,
+      imageUrl: product.primaryImageUrl,
     });
 
     setTimeout(() => {
@@ -59,23 +90,39 @@ export function ProductCard({ product }: ProductCardProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    // Check if we can add more (if inventory quantity is set)
-    const maxQuantity = product.inventory?.quantity;
+    if (!selectedPrice) return;
+
+    // Check against the already-calculated maxQuantity
     if (maxQuantity !== null && quantityInCart >= maxQuantity) {
       return; // Don't allow adding more than available stock
     }
 
-    updateQuantity(product._id, quantityInCart + 1);
+    updateQuantity(cartItemId, quantityInCart + 1);
   };
 
   const handleDecrement = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    updateQuantity(product._id, quantityInCart - 1);
+    updateQuantity(cartItemId, quantityInCart - 1);
   };
 
   const inStock = product.inventory?.available ?? false;
-  const maxQuantity = product.inventory?.quantity;
+  const totalAvailableBaseUnits = product.inventory?.quantity;
+
+  // Calculate base units already used by ALL variants of this product in cart
+  const baseUnitsUsedInCart = items
+    .filter(item => item.productId === product.stripeProductId)
+    .reduce((sum, item) => sum + (item.baseUnits * item.quantity), 0);
+
+  // Remaining base units = total - what's used in cart
+  const remainingBaseUnits = totalAvailableBaseUnits !== null
+    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedInCart)
+    : null;
+
+  // Max for THIS specific size variant
+  const maxQuantity = remainingBaseUnits !== null && selectedPrice
+    ? Math.floor(remainingBaseUnits / selectedPrice.baseUnits)
+    : null;
   const canAddMore = maxQuantity === null || quantityInCart < maxQuantity;
 
   return (
@@ -116,9 +163,9 @@ export function ProductCard({ product }: ProductCardProps) {
           )}
 
           {/* Sale Badge - Modern Style */}
-          {product.originalPrice && product.originalPrice > product.price && (
+          {originalPrice && originalPrice > selectedPriceAmount && (
             <div className="absolute top-3 left-3 bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg shadow-red-500/30">
-              SAVE ${(product.originalPrice - product.price).toFixed(2)}
+              {product.currentlyDiscounted}% OFF
             </div>
           )}
         </div>
@@ -130,19 +177,19 @@ export function ProductCard({ product }: ProductCardProps) {
           <div className="flex items-baseline justify-between">
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-bold text-white">
-                ${product.price.toFixed(2)}
+                ${selectedPriceAmount.toFixed(2)}
               </span>
-              {product.originalPrice && product.originalPrice > product.price && (
+              {originalPrice && originalPrice > selectedPriceAmount && (
                 <span className="text-sm text-zinc-500 line-through">
-                  ${product.originalPrice.toFixed(2)}
+                  ${originalPrice.toFixed(2)}
                 </span>
               )}
             </div>
             {inStock ? (
               <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {product.inventory?.quantity !== null
-                  ? `${product.inventory.quantity} left`
+                {maxQuantity !== null
+                  ? `${maxQuantity} left`
                   : "In Stock"}
               </span>
             ) : (
@@ -158,6 +205,29 @@ export function ProductCard({ product }: ProductCardProps) {
             <div className="text-zinc-400 text-xs leading-relaxed line-clamp-2">
               <p>{product.subtitle}</p>
             </div>
+          )}
+
+          {/* Size Selector - Only show if there are multiple sizes */}
+          {product.prices.length > 1 && (
+            <select
+              value={selectedPriceId}
+              onChange={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSelectedPriceId(e.target.value);
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className="w-full py-2 px-3 bg-zinc-800 text-white border border-zinc-700 rounded-lg text-sm hover:border-zinc-600 focus:border-zinc-500 focus:outline-none transition-colors"
+            >
+              {product.prices.map((price) => (
+                <option key={price.priceId} value={price.priceId}>
+                  {price.nickname || "Default"} - ${(price.amount / 100).toFixed(2)}
+                </option>
+              ))}
+            </select>
           )}
 
           {/* Add to Cart Button or Quantity Controls */}

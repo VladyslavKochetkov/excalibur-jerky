@@ -6,38 +6,81 @@ import { useState } from "react";
 interface ProductAddToCartProps {
   product: {
     _id: string;
+    stripeProductId: string;
     name: string;
     price: number;
-    stripePriceId: string;
+    prices: Array<{
+      priceId: string;
+      nickname: string | null;
+      amount: number; // in cents
+      baseUnits: number;
+    }>;
     inventory: {
       quantity: number | null;
       available: boolean;
     };
+    primaryImageUrl?: string;
   };
 }
 
 export function ProductAddToCart({ product }: ProductAddToCartProps) {
-  const { addItem, items, updateQuantity } = useCart();
+  const { addItem, items, updateQuantity, openCart } = useCart();
   const [isAdding, setIsAdding] = useState(false);
 
-  // Check if item is in cart
-  const cartItem = items.find((item) => item.id === product._id);
+  // All products should now have prices array
+  // Default to 4oz variant (baseUnits = 1) or fall back to first price
+  const defaultPrice = product.prices?.find(p => p.baseUnits === 1) || product.prices?.[0];
+  const [selectedPriceId, setSelectedPriceId] = useState(defaultPrice?.priceId || "");
+
+  // Handle products without prices (shouldn't happen but safety check)
+  if (!product.prices || product.prices.length === 0) {
+    return null;
+  }
+
+  // Get selected price details
+  const selectedPrice = product.prices.find(p => p.priceId === selectedPriceId) || product.prices[0];
+  const selectedPriceAmount = selectedPrice.amount / 100;
+
+  // Check if item is in cart (cart item ID is productId-priceId)
+  const cartItemId = `${product.stripeProductId}-${selectedPriceId}`;
+  const cartItem = items.find((item) => item.id === cartItemId);
   const quantityInCart = cartItem?.quantity || 0;
 
   const inStock = product.inventory?.available ?? false;
-  const maxQuantity = product.inventory?.quantity;
+  const totalAvailableBaseUnits = product.inventory?.quantity;
+
+  // Calculate base units already used by ALL variants of this product in cart
+  const baseUnitsUsedInCart = items
+    .filter(item => item.productId === product.stripeProductId)
+    .reduce((sum, item) => sum + (item.baseUnits * item.quantity), 0);
+
+  // Remaining base units = total - what's used in cart
+  const remainingBaseUnits = totalAvailableBaseUnits !== null
+    ? Math.max(0, totalAvailableBaseUnits - baseUnitsUsedInCart)
+    : null;
+
+  // Max for THIS specific size variant
+  const maxQuantity = remainingBaseUnits !== null && selectedPrice
+    ? Math.floor(remainingBaseUnits / selectedPrice.baseUnits)
+    : null;
   const canAddMore = maxQuantity === null || quantityInCart < maxQuantity;
 
   const handleAddToCart = () => {
+    if (!selectedPrice) return;
+
     setIsAdding(true);
 
     addItem({
-      id: product._id,
+      id: cartItemId,
+      productId: product.stripeProductId,
+      priceId: selectedPriceId,
       name: product.name,
-      price: product.price,
+      sizeNickname: selectedPrice.nickname || "Default",
+      price: selectedPriceAmount,
       quantity: 1,
-      stripePriceId: product.stripePriceId,
-      maxQuantity: product.inventory?.quantity,
+      baseUnits: selectedPrice.baseUnits,
+      maxQuantity: maxQuantity,
+      imageUrl: product.primaryImageUrl,
     });
 
     setTimeout(() => {
@@ -46,15 +89,50 @@ export function ProductAddToCart({ product }: ProductAddToCartProps) {
   };
 
   const handleIncrement = () => {
-    updateQuantity(product._id, quantityInCart + 1);
+    if (!selectedPrice) return;
+
+    // Check against the already-calculated maxQuantity
+    if (maxQuantity !== null && quantityInCart >= maxQuantity) {
+      return; // Don't allow adding more than available stock
+    }
+
+    updateQuantity(cartItemId, quantityInCart + 1);
   };
 
   const handleDecrement = () => {
-    updateQuantity(product._id, quantityInCart - 1);
+    updateQuantity(cartItemId, quantityInCart - 1);
   };
 
   return (
     <div className="space-y-4">
+      {/* Size Selector - Only show if there are multiple sizes */}
+      {product.prices.length > 1 && (
+        <div>
+          <label htmlFor="size-select" className="block text-sm font-medium mb-2">
+            Select Size
+          </label>
+          <select
+            id="size-select"
+            value={selectedPriceId}
+            onChange={(e) => setSelectedPriceId(e.target.value)}
+            className="w-full py-3 px-4 bg-background border border-input rounded-md text-base focus:border-ring focus:outline-none transition-colors"
+          >
+            {product.prices.map((price) => (
+              <option key={price.priceId} value={price.priceId}>
+                {price.nickname || "Default"} - ${(price.amount / 100).toFixed(2)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Availability Info */}
+      {inStock && maxQuantity !== null && (
+        <div className="text-sm text-muted-foreground">
+          <span className="font-medium">{maxQuantity}</span> available for this size
+        </div>
+      )}
+
       {quantityInCart > 0 ? (
         // Show quantity controls when item is in cart
         <div className="w-full flex gap-2">
@@ -67,7 +145,8 @@ export function ProductAddToCart({ product }: ProductAddToCartProps) {
           </button>
           <button
             type="button"
-            className="flex-[2] py-3 px-6 bg-primary text-primary-foreground font-semibold rounded-md cursor-default text-lg"
+            onClick={openCart}
+            className="flex-[2] py-3 px-6 bg-primary text-primary-foreground font-semibold rounded-md hover:bg-primary/90 transition-colors cursor-pointer text-lg"
           >
             {quantityInCart} in cart
           </button>

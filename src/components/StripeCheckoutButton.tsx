@@ -1,6 +1,7 @@
 "use client";
 
 import { useCart } from "@/contexts/CartContext";
+import { storeCheckoutSessionId } from "@/lib/checkout-session";
 import { useState } from "react";
 import { Button } from "./ui/button";
 
@@ -13,7 +14,7 @@ export function StripeCheckoutButton({
   onSuccess,
   onError,
 }: StripeCheckoutButtonProps) {
-  const { items, clearCart } = useCart();
+  const { items } = useCart();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleCheckout = async () => {
@@ -32,7 +33,7 @@ export function StripeCheckoutButton({
         },
         body: JSON.stringify({
           items: items.map((item) => ({
-            priceId: item.stripePriceId,
+            priceId: item.priceId,
             quantity: item.quantity,
           })),
         }),
@@ -43,14 +44,14 @@ export function StripeCheckoutButton({
         throw new Error(error.error || "Failed to create checkout session");
       }
 
-      const { url } = await response.json();
+      const { url, sessionId } = await response.json();
 
-      if (!url) {
-        throw new Error("No checkout URL returned");
+      if (!url || !sessionId) {
+        throw new Error("No checkout URL or session ID returned");
       }
 
-      // Clear cart before redirecting
-      clearCart();
+      // Store session ID for later cart clearing
+      storeCheckoutSessionId(sessionId);
 
       // Redirect to Stripe Checkout
       window.location.href = url;

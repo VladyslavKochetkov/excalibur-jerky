@@ -6,10 +6,13 @@ import { useCart } from "@/contexts/CartContext";
 interface CartValidatorProps {
   products: Array<{
     _id: string;
+    stripeProductId: string;
+    prices?: Array<{ priceId: string; baseUnits: number }> | null;
     inventory: {
       quantity: number | null;
       available: boolean;
     };
+    primaryImageUrl?: string;
   }>;
 }
 

@@ -44,6 +44,10 @@ export async function POST(request: NextRequest) {
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/checkout/cancel`,
       automatic_tax: { enabled: false }, // Enable if you have tax configured in Stripe
+      // Collect shipping address
+      shipping_address_collection: {
+        allowed_countries: ["US"], // Add more countries as needed: 'CA', 'MX', etc.
+      },
       // Enable inventory management in Stripe
       payment_intent_data: {
         metadata: {
@@ -59,7 +63,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ url: session.url });
+    return NextResponse.json({ url: session.url, sessionId: session.id });
   } catch (error) {
     console.error("Error creating checkout session:", error);
 

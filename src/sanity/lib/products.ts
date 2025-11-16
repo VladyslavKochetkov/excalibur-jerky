@@ -13,13 +13,20 @@ function generateKey(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
+export interface SanityPriceVariant {
+  priceId: string;
+  nickname: string | null;
+  amount: number; // in cents
+  baseUnits: number;
+}
+
 export interface SanityProduct {
   _id: string;
   stripeProductId: string;
-  stripePriceId: string;
+  prices: SanityPriceVariant[]; // Array of price variants
   name: string;
-  price: number;
-  originalPrice?: number;
+  price: number; // Base price for display (from first/default price)
+  currentlyDiscounted?: number; // Discount percentage (0-100)
   subtitle?: string; // Short text from Stripe
   description?: unknown[]; // Portable Text blocks (Sanity only)
   primaryImage?: {
@@ -53,10 +60,10 @@ export async function getAllProducts(): Promise<SanityProduct[]> {
   const query = `*[_type == "products"] | order(isFeatured desc, name asc) {
     _id,
     stripeProductId,
-    stripePriceId,
+    prices,
     name,
     price,
-    originalPrice,
+    currentlyDiscounted,
     subtitle,
     description,
     primaryImage,
@@ -85,10 +92,10 @@ export async function getFeaturedProducts(): Promise<SanityProduct[]> {
   const query = `*[_type == "products" && isFeatured == true] | order(name asc) {
     _id,
     stripeProductId,
-    stripePriceId,
+    prices,
     name,
     price,
-    originalPrice,
+    currentlyDiscounted,
     subtitle,
     description,
     primaryImage,
@@ -119,10 +126,10 @@ export async function getProductByStripeId(
   const query = `*[_type == "products" && stripeProductId == $stripeProductId][0] {
     _id,
     stripeProductId,
-    stripePriceId,
+    prices,
     name,
     price,
-    originalPrice,
+    currentlyDiscounted,
     subtitle,
     description,
     primaryImage,
@@ -151,10 +158,10 @@ export async function getProductById(id: string): Promise<SanityProduct | null> 
   const query = `*[_type == "products" && _id == $id][0] {
     _id,
     stripeProductId,
-    stripePriceId,
+    prices,
     name,
     price,
-    originalPrice,
+    currentlyDiscounted,
     subtitle,
     description,
     primaryImage,
@@ -205,10 +212,10 @@ export async function getProductsWithInventory(): Promise<
 export interface MergedProduct {
   _id: string;
   stripeProductId: string;
-  stripePriceId: string;
+  prices: SanityPriceVariant[]; // Array of price variants
   name: string;
-  price: number;
-  originalPrice?: number;
+  price: number; // Base price for display
+  currentlyDiscounted?: number; // Discount percentage
   subtitle?: string; // Short text subtitle from Stripe
   description?: unknown[]; // Rich text description from Sanity only
   primaryImage?: {
@@ -229,7 +236,7 @@ export interface MergedProduct {
   stripeImages?: string[]; // Additional Stripe image URLs
   isFeatured: boolean;
   inventory: {
-    quantity: number | null;
+    quantity: number | null; // In base units (4oz packages)
     available: boolean;
   };
   source: "sanity" | "stripe"; // Track where the primary data came from
@@ -241,16 +248,29 @@ export interface MergedProduct {
  * - Products only in Stripe: Use Stripe data
  */
 export async function getMergedProducts(): Promise<MergedProduct[]> {
+  console.log(`\n🔄 [MERGE] Starting product merge...`);
+
   // Fetch from both sources in parallel
   const [stripeProducts, sanityProducts] = await Promise.all([
     getStripeProducts(),
     getAllProducts(),
   ]);
 
+  console.log(`📦 [MERGE] Fetched ${stripeProducts.length} products from Stripe`);
+  console.log(`📦 [MERGE] Fetched ${sanityProducts.length} products from Sanity`);
+
+  console.log(`🔍 [MERGE] Sanity products:`, sanityProducts.map(p => ({
+    sanityId: p._id,
+    stripeProductId: p.stripeProductId,
+    name: p.name,
+  })));
+
   // Create a map of Sanity products by Stripe Product ID for quick lookup
   const sanityProductMap = new Map(
     sanityProducts.map((product) => [product.stripeProductId, product])
   );
+
+  console.log(`🗺️ [MERGE] Created map with ${sanityProductMap.size} Sanity products`);
 
   // Merge the products
   const mergedProducts: MergedProduct[] = stripeProducts.map((stripeProduct) => {
@@ -258,13 +278,14 @@ export async function getMergedProducts(): Promise<MergedProduct[]> {
 
     if (sanityProduct) {
       // Product exists in both: use Sanity data with Stripe inventory
+      console.log(`✅ [MERGE] Merging product from Sanity: ${stripeProduct.id} → Sanity ID: ${sanityProduct._id}`);
       return {
         _id: sanityProduct._id,
         stripeProductId: stripeProduct.id,
-        stripePriceId: stripeProduct.priceId,
+        prices: sanityProduct.prices, // Use prices from Sanity (synced from Stripe)
         name: sanityProduct.name,
         price: sanityProduct.price,
-        originalPrice: sanityProduct.originalPrice,
+        currentlyDiscounted: sanityProduct.currentlyDiscounted,
         subtitle: sanityProduct.subtitle,
         description: sanityProduct.description,
         primaryImage: sanityProduct.primaryImage,
@@ -276,14 +297,16 @@ export async function getMergedProducts(): Promise<MergedProduct[]> {
       };
     } else {
       // Product only exists in Stripe: use Stripe data
+      const tempId = `stripe-${stripeProduct.id}`;
+      console.log(`⚠️ [MERGE] Product only in Stripe (not synced to Sanity): ${stripeProduct.id} → Temporary ID: ${tempId}`);
       const firstImage = stripeProduct.images[0];
       return {
-        _id: `stripe-${stripeProduct.id}`, // Generate a temporary ID
+        _id: tempId, // Generate a temporary ID
         stripeProductId: stripeProduct.id,
-        stripePriceId: stripeProduct.priceId,
+        prices: stripeProduct.prices, // Use prices directly from Stripe
         name: stripeProduct.name,
-        price: stripeProduct.price,
-        originalPrice: undefined,
+        price: stripeProduct.prices[0]?.amount / 100 || 0, // Base price from first variant
+        currentlyDiscounted: undefined,
         subtitle: stripeProduct.description || undefined,
         description: undefined,
         primaryImage: firstImage
@@ -297,6 +320,8 @@ export async function getMergedProducts(): Promise<MergedProduct[]> {
       };
     }
   });
+
+  console.log(`✅ [MERGE] Merged ${mergedProducts.length} total products`);
 
   // Sort: featured first, then by name
   return mergedProducts.sort((a, b) => {
@@ -432,32 +457,67 @@ async function uploadImageToSanity(
 export async function syncStripeProductToSanity(
   stripeProduct: Stripe.Product
 ): Promise<void> {
+  console.log(`\n🔄 [SYNC START] Syncing product ${stripeProduct.id} (${stripeProduct.name}) to Sanity`);
   const writeClient = getWriteClient();
 
-  // Get the default price
-  const defaultPrice = stripeProduct.default_price as Stripe.Price | null;
+  console.log(`💰 [SYNC] Fetching prices for product: ${stripeProduct.id}`);
 
-  if (!defaultPrice) {
-    console.warn(`Product ${stripeProduct.id} has no default price, skipping sync`);
+  // Fetch ALL active prices for this product
+  const { default: Stripe } = await import("stripe");
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2025-02-24.acacia",
+  });
+
+  const pricesResponse = await stripe.prices.list({
+    product: stripeProduct.id,
+    active: true,
+    limit: 100,
+  });
+
+  if (pricesResponse.data.length === 0) {
+    console.warn(`Product ${stripeProduct.id} has no active prices, skipping sync`);
     return;
   }
 
-  const priceId = typeof defaultPrice === "string" ? defaultPrice : defaultPrice.id;
-  const unitAmount = typeof defaultPrice === "string"
-    ? 0
-    : (defaultPrice.unit_amount || 0) / 100;
+  // Import the extractBaseUnits function logic here (we need to duplicate it since it's in a different module)
+  const extractBaseUnits = (price: Stripe.Price, nickname: string | null): number => {
+    if (price.metadata?.base_units) {
+      const parsed = Number.parseInt(price.metadata.base_units, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+    if (nickname) {
+      const lowerNickname = nickname.toLowerCase().trim();
+      if (lowerNickname.includes("1 lb") || lowerNickname.includes("1lb")) return 4;
+      if (lowerNickname.includes("12oz") || lowerNickname.includes("12 oz")) return 3;
+      if (lowerNickname.includes("8oz") || lowerNickname.includes("8 oz")) return 2;
+      if (lowerNickname.includes("4oz") || lowerNickname.includes("4 oz")) return 1;
+    }
+    return 1;
+  };
+
+  // Transform prices to our format
+  const prices = pricesResponse.data.map((price) => ({
+    priceId: price.id,
+    nickname: price.nickname,
+    amount: price.unit_amount || 0,
+    baseUnits: extractBaseUnits(price, price.nickname),
+  }));
+
+  console.log(`[Sync] Found ${prices.length} active price(s) for product ${stripeProduct.id}`);
+
+  // Get base price from first price variant
+  const basePrice = prices[0]?.amount / 100 || 0;
 
   console.log(`[Sync] Checking for existing product with Stripe ID: ${stripeProduct.id}`);
 
   // Check if product already exists in Sanity
-  // Use a fresh query without CDN caching to ensure we get the latest data
   const existingProductQuery = `*[_type == "products" && stripeProductId == $stripeProductId][0] {
     _id,
     stripeProductId,
-    stripePriceId,
+    prices,
     name,
     price,
-    originalPrice,
+    currentlyDiscounted,
     subtitle,
     description,
     primaryImage,
@@ -471,24 +531,28 @@ export async function syncStripeProductToSanity(
   );
 
   if (existingProduct) {
-    console.log(`[Sync] Found existing product: ${existingProduct._id} (${existingProduct.name})`);
+    console.log(`✅ [SYNC] Found existing product in Sanity:`, {
+      sanityId: existingProduct._id,
+      stripeProductId: existingProduct.stripeProductId,
+      name: existingProduct.name,
+    });
   } else {
-    console.log(`[Sync] No existing product found, will create new one`);
+    console.log(`🆕 [SYNC] No existing product found, will create new one`);
   }
 
   const productData = {
     _type: "products",
     stripeProductId: stripeProduct.id,
-    stripePriceId: priceId,
+    prices: prices,
     name: stripeProduct.name,
-    price: unitAmount,
+    price: basePrice,
     isFeatured: false, // Default to not featured, can be updated manually in Sanity
   };
 
   if (existingProduct) {
     // Update existing product
     const updateData: Record<string, any> = {
-      stripePriceId: productData.stripePriceId,
+      prices: productData.prices,
       name: productData.name,
       price: productData.price,
     };
@@ -529,9 +593,14 @@ export async function syncStripeProductToSanity(
   } else {
     // Create new product
     // Use a deterministic _id based on Stripe product ID to prevent duplicates
-    const documentId = `stripe-product-${stripeProduct.id}`;
+    // Note: Must match the temporary ID format in getMergedProducts() (line 288)
+    const documentId = `stripe-${stripeProduct.id}`;
 
-    console.log(`[Sync] Creating new product with ID: ${documentId}`);
+    console.log(`🆕 [SYNC] Creating new product with deterministic ID:`, {
+      documentId,
+      stripeProductId: stripeProduct.id,
+      name: stripeProduct.name,
+    });
 
     const newProduct: any = {
       _id: documentId,
@@ -566,12 +635,18 @@ export async function syncStripeProductToSanity(
     // Use createIfNotExists to prevent race conditions
     try {
       await writeClient.createIfNotExists(newProduct);
-      console.log(`[Sync] ✅ Successfully created new product ${stripeProduct.id} (${documentId})`);
+      console.log(`✅ [SYNC] Successfully created new product in Sanity:`, {
+        stripeProductId: stripeProduct.id,
+        sanityDocumentId: documentId,
+        name: stripeProduct.name,
+      });
     } catch (error) {
-      console.error(`[Sync] ❌ Failed to create product ${stripeProduct.id}:`, error);
+      console.error(`❌ [SYNC] Failed to create product ${stripeProduct.id}:`, error);
       throw error;
     }
   }
+
+  console.log(`✅ [SYNC END] Completed sync for product ${stripeProduct.id}\n`);
 }
 
 /**

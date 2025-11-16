@@ -25,14 +25,61 @@ export const productsType = defineType({
       fieldset: "stripe_noedit",
     },
     {
-      name: "stripePriceId",
+      name: "prices",
       fieldset: "stripe_noedit",
-      title: "Price ID",
-      type: "string",
+      title: "Price Variants",
+      type: "array",
       readOnly: true,
-      validation: (Rule) => Rule.required(),
+      of: [
+        {
+          type: "object",
+          fields: [
+            {
+              name: "priceId",
+              title: "Price ID",
+              type: "string",
+              validation: (Rule) => Rule.required(),
+            },
+            {
+              name: "nickname",
+              title: "Nickname (Size)",
+              type: "string",
+              description: "e.g., '4oz', '8oz', '12oz', '1 lb'",
+            },
+            {
+              name: "amount",
+              title: "Amount (cents)",
+              type: "number",
+              validation: (Rule) => Rule.required().min(0),
+            },
+            {
+              name: "baseUnits",
+              title: "Base Units Multiplier",
+              type: "number",
+              description:
+                "Number of base units (4oz packages) this price represents",
+              validation: (Rule) => Rule.required().min(1),
+            },
+          ],
+          preview: {
+            select: {
+              nickname: "nickname",
+              amount: "amount",
+              baseUnits: "baseUnits",
+            },
+            prepare({ nickname, amount, baseUnits }) {
+              const displayAmount = amount ? (amount / 100).toFixed(2) : "0.00";
+              return {
+                title: nickname || "No nickname",
+                subtitle: `$${displayAmount} (${baseUnits}x base unit)`,
+              };
+            },
+          },
+        },
+      ],
+      validation: (Rule) => Rule.required().min(1),
       description:
-        "Stripe price ID (e.g., price_xxx). Synced from Stripe - do not edit manually.",
+        "Price variants for different sizes. Synced from Stripe - do not edit manually.",
     },
     {
       name: "name",
@@ -54,36 +101,30 @@ export const productsType = defineType({
         "Current sale price synced from Stripe - do not edit manually.",
     },
     {
-      name: "originalPrice",
-      title: "Original Price (USD)",
+      name: "currentlyDiscounted",
+      title: "Currently Discounted (%)",
       type: "number",
       validation: (Rule) =>
         Rule.optional()
           .min(0)
-          .custom((originalPrice, context) => {
-            const document = context.document as { price?: number };
-            const salePrice = document?.price;
-
+          .max(100)
+          .custom((discount, context) => {
             if (
-              originalPrice !== undefined &&
-              originalPrice !== null &&
-              typeof originalPrice === "number"
+              discount !== undefined &&
+              discount !== null &&
+              typeof discount === "number"
             ) {
-              if (
-                salePrice === undefined ||
-                salePrice === null ||
-                typeof salePrice !== "number"
-              ) {
-                return "Sale price must be set before adding an original price";
+              if (discount === 0) {
+                return "If not discounted, leave this field empty instead of setting to 0";
               }
-              if (originalPrice <= salePrice) {
-                return `Original price ($${originalPrice.toFixed(2)}) must be greater than sale price ($${salePrice.toFixed(2)})`;
+              if (discount >= 100) {
+                return "Discount percentage must be less than 100%";
               }
             }
             return true;
           }),
       description:
-        "Optional: Set a higher original price to show this product as on sale. Must be greater than the sale price.",
+        "Optional: Set discount percentage (e.g., 10 for 10% off). Original price will be calculated as: currentPrice / (1 - discount/100).",
     },
     {
       name: "subtitle",
@@ -163,14 +204,17 @@ export const productsType = defineType({
     select: {
       title: "name",
       price: "price",
-      originalPrice: "originalPrice",
+      currentlyDiscounted: "currentlyDiscounted",
       isFeatured: "isFeatured",
       media: "primaryImage",
     },
-    prepare({ title, price, originalPrice, isFeatured, media }) {
-      const priceDisplay = originalPrice
-        ? `$${price?.toFixed(2) || "0.00"} (was $${originalPrice.toFixed(2)})`
-        : `$${price?.toFixed(2) || "0.00"}`;
+    prepare({ title, price, currentlyDiscounted, isFeatured, media }) {
+      let priceDisplay = `$${price?.toFixed(2) || "0.00"}`;
+
+      if (currentlyDiscounted && currentlyDiscounted > 0) {
+        const originalPrice = price / (1 - currentlyDiscounted / 100);
+        priceDisplay = `$${price?.toFixed(2) || "0.00"} (was $${originalPrice.toFixed(2)}) - ${currentlyDiscounted}% off`;
+      }
 
       return {
         title: title,

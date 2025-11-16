@@ -1,9 +1,16 @@
-import { Button } from "@/components/ui/button";
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { useCart } from "@/contexts/CartContext";
 
 export default function CheckoutCancelPage() {
+  const { totalItems } = useCart();
+  const router = useRouter();
+
   return (
-    <div className="min-h-[60vh] flex items-center justify-center px-4">
+    <div className="min-h-[60vh] flex items-center justify-center px-4 mt-10">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto">
           <svg
@@ -29,10 +36,29 @@ export default function CheckoutCancelPage() {
         </div>
 
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Your cart items are still saved. You can return to complete your
-            purchase at any time.
-          </p>
+          {totalItems > 0 ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Your cart items are still saved ({totalItems}{" "}
+                {totalItems === 1 ? "item" : "items"}). You can return to
+                complete your purchase at any time.
+              </p>
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-sm font-semibold mb-2">
+                  Ready to complete your order?
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Click the cart icon in the navigation to review your items and
+                  checkout.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Your cart is currently empty. Browse our catalog to find delicious
+              jerky!
+            </p>
+          )}
 
           <div className="flex gap-3 justify-center">
             <Button asChild variant="outline">
