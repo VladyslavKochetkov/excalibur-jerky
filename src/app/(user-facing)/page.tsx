@@ -82,7 +82,7 @@ export default async function Home() {
       </picture>
 
       {/* Content - determines container size */}
-      <div className="relative z-10 flex flex-col items-center justify-end text-white bg-linear-to-t from-background/50 to-background/0">
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-end text-white bg-linear-to-t from-background/50 to-background/0">
         {(imageTextL1 || imageTextL2) && (
           <div className="w-full mb-8 overflow-visible">
             <svg
