@@ -69,20 +69,22 @@ export default async function Home() {
     });
 
   return (
-    <div className="relative w-full overflow-hidden bg-background">
-      {/* Background image */}
-      <picture className="absolute inset-0 z-0">
-        <source media="(min-aspect-ratio: 1/1)" srcSet={desktopImageUrl} />
-        <source media="(max-aspect-ratio: 1/1)" srcSet={mobileImageUrl} />
-        <img
-          src={desktopImageUrl}
-          alt={landing.imageText || "Landing"}
-          className="w-full h-full object-cover"
-        />
-      </picture>
+    <>
+      {/* Hero Section */}
+      <div className="relative w-full h-screen overflow-hidden bg-background">
+        {/* Background image */}
+        <picture className="absolute inset-0 z-0">
+          <source media="(min-aspect-ratio: 1/1)" srcSet={desktopImageUrl} />
+          <source media="(max-aspect-ratio: 1/1)" srcSet={mobileImageUrl} />
+          <img
+            src={desktopImageUrl}
+            alt={landing.imageText || "Landing"}
+            className="w-full h-full object-cover object-top md:object-center"
+          />
+        </picture>
 
-      {/* Content - determines container size */}
-      <div className="relative z-10 flex flex-col items-center justify-end text-white bg-linear-to-t from-background/50 to-background/0">
+        {/* Content - determines container size */}
+        <div className="relative z-10 h-full flex flex-col items-center justify-end text-white bg-linear-to-t from-background/50 to-background/0">
         {(imageTextL1 || imageTextL2) && (
           <div className="w-full mb-8 overflow-visible">
             <svg
@@ -243,8 +245,9 @@ export default async function Home() {
           </Link>
         </div>
       </div>
+    </div>
 
-      {/* Featured Products Section */}
+    {/* Featured Products Section */}
       {featuredProducts.length > 0 && (
         <div className="relative bg-background py-16 px-4">
           <div className="container mx-auto max-w-7xl">
@@ -277,6 +280,6 @@ export default async function Home() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
