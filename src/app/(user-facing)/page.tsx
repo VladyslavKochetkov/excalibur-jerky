@@ -69,7 +69,7 @@ export default async function Home() {
     });
 
   return (
-    <div className="relative w-full overflow-hidden bg-background">
+    <div className="relative w-full min-h-screen overflow-hidden bg-background">
       {/* Background image */}
       <picture className="absolute inset-0 z-0">
         <source media="(min-aspect-ratio: 1/1)" srcSet={desktopImageUrl} />
