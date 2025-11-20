@@ -5,15 +5,15 @@ import { toast } from "sonner";
 
 export interface CartItem {
   id: string; // Unique cart item ID: `${productId}-${priceId}`
-  productId: string; // Base Stripe product ID
-  priceId: string; // Specific price variant ID
+  productId: string; // Square item ID
+  priceId: string; // Square variation ID
   name: string; // Product name
   sizeNickname: string; // Size variant (e.g., "4oz", "8oz")
   price: number; // Price for this variant (in dollars)
   quantity: number; // Number of items in cart
   baseUnits: number; // Base units per item (4oz = 1, 8oz = 2, etc.)
   maxQuantity?: number | null; // Max items available (accounting for base units)
-  totalInventory?: number | null; // Total inventory in base units (from Stripe)
+  totalInventory?: number | null; // Total inventory in base units (from Square)
   imageUrl?: string; // Optional product image URL
 }
 

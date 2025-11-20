@@ -4,7 +4,6 @@
  */
 
 import { Resend } from "resend";
-import type Stripe from "stripe";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -16,6 +15,21 @@ interface OrderLineItem {
   size?: string;
 }
 
+interface OrderAddress {
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  // Square address fields
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  locality?: string | null;
+  administrativeDistrictLevel1?: string | null;
+  postalCode?: string | null;
+}
+
 interface OrderEmailData {
   sessionId: string;
   customerEmail: string;
@@ -25,7 +39,7 @@ interface OrderEmailData {
   shipping: number;
   total: number;
   currency: string;
-  shippingAddress: Stripe.Address | null;
+  shippingAddress: OrderAddress | null;
 }
 
 /**
@@ -40,20 +54,24 @@ function formatCurrency(amount: number, currency: string): string {
 
 /**
  * Formats shipping address with HTML line breaks
+ * Supports both Stripe-style and Square-style address formats
  */
-function formatAddress(address: Stripe.Address | null): string {
+function formatAddress(address: OrderAddress | null): string {
   if (!address) return "N/A";
 
   const lines = [];
 
-  if (address.line1) lines.push(address.line1);
-  if (address.line2) lines.push(address.line2);
+  // Support both Stripe and Square address fields
+  const line1 = address.line1 || address.addressLine1;
+  const line2 = address.line2 || address.addressLine2;
+  const city = address.city || address.locality;
+  const state = address.state || address.administrativeDistrictLevel1;
+  const postalCode = address.postal_code || address.postalCode;
 
-  const cityStateZip = [
-    address.city,
-    address.state,
-    address.postal_code,
-  ].filter(Boolean).join(", ");
+  if (line1) lines.push(line1);
+  if (line2) lines.push(line2);
+
+  const cityStateZip = [city, state, postalCode].filter(Boolean).join(", ");
 
   if (cityStateZip) lines.push(cityStateZip);
   if (address.country) lines.push(address.country.toUpperCase());
