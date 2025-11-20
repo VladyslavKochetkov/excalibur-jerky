@@ -11,7 +11,8 @@
     "lint": "biome check",
     "format": "biome format --write",
     "delete-products": "tsx scripts/delete-all-products.ts",
-    "sync-square-products": "tsx --env-file=.env.local scripts/sync-square-products.ts"
+    "sync-square-products": "tsx --env-file=.env.local scripts/sync-square-products.ts",
+    "migrate-stripe-to-square": "tsx --env-file=.env.local scripts/migrate-stripe-to-square.ts"
   },
   "dependencies": {
     "@portabletext/react": "^5.0.0",
