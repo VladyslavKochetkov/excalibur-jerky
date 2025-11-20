@@ -4,23 +4,26 @@
  * This script reads all products from Stripe and creates them in Square
  * with corresponding variations, prices, and inventory.
  *
- * Usage: npx tsx --env-file=.env.local scripts/migrate-stripe-to-square.ts
+ * Usage: npx tsx scripts/migrate-stripe-to-square.ts
  */
 
+import { config } from "dotenv";
+import { Currency, SquareClient, SquareEnvironment } from "square";
 import Stripe from "stripe";
-import { SquareClient, Environment } from "square";
+
+config({ path: ".env.local" });
 
 // Initialize clients
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-02-24.acacia",
+  apiVersion: "2025-11-17.clover",
 });
 
 const square = new SquareClient({
   token: process.env.SQUARE_ACCESS_TOKEN!,
   environment:
     process.env.NODE_ENV === "production"
-      ? Environment.Production
-      : Environment.Sandbox,
+      ? SquareEnvironment.Production
+      : SquareEnvironment.Sandbox,
 });
 
 const locationId = process.env.SQUARE_LOCATION_ID!;
@@ -34,7 +37,7 @@ interface MigrationResult {
 }
 
 async function migrateProduct(
-  product: Stripe.Product
+  product: Stripe.Product,
 ): Promise<MigrationResult> {
   const result: MigrationResult = {
     stripeProductId: product.id,
@@ -66,7 +69,7 @@ async function migrateProduct(
           pricingType: "FIXED_PRICING" as const,
           priceMoney: {
             amount: BigInt(price.unit_amount || 0),
-            currency: price.currency.toUpperCase(),
+            currency: price.currency.toUpperCase() as Currency,
           },
           trackInventory: true,
           sellable: true,
@@ -76,7 +79,7 @@ async function migrateProduct(
     });
 
     // Create the item in Square
-    const { result: catalogResult } = await square.catalog.upsertCatalogObject({
+    const catalogResult = await square.catalog.object.upsert({
       idempotencyKey: `migrate-${product.id}-${Date.now()}`,
       object: {
         type: "ITEM",
@@ -90,12 +93,24 @@ async function migrateProduct(
     });
 
     const squareItem = catalogResult.catalogObject;
-    if (!squareItem?.id) {
+    if (!squareItem?.id || squareItem.type !== "ITEM" || !squareItem.itemData) {
       result.error = "Failed to create Square item";
       return result;
     }
 
+    const itemData = squareItem.itemData;
     result.squareItemId = squareItem.id;
+
+    const inferContentType = (url: string, headerType?: string) => {
+      if (headerType && headerType !== "application/octet-stream") return headerType;
+      const lower = url.toLowerCase();
+      if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".pjpeg")) {
+        return "image/jpeg";
+      }
+      if (lower.endsWith(".png")) return "image/png";
+      if (lower.endsWith(".gif")) return "image/gif";
+      return "image/jpeg";
+    };
 
     // Upload images if any
     if (product.images && product.images.length > 0) {
@@ -105,24 +120,31 @@ async function migrateProduct(
           const imageResponse = await fetch(imageUrl);
           if (!imageResponse.ok) continue;
 
+          const contentType = inferContentType(
+            imageUrl,
+            imageResponse.headers.get("content-type") || undefined,
+          );
           const imageBuffer = await imageResponse.arrayBuffer();
-          const imageBlob = new Blob([imageBuffer]);
+          const imageBlob = new Blob([imageBuffer], { type: contentType });
 
           // Create image in Square
-          const { result: imageResult } = await square.catalog.createCatalogImage({
-            idempotencyKey: `img-${product.id}-${Date.now()}-${Math.random()}`,
-            image: {
-              type: "IMAGE",
-              id: "#image",
-              imageData: {
-                name: product.name,
-                caption: product.name,
+          const imageResult = await square.catalog.images.create({
+            request: {
+              idempotencyKey: `img-${product.id}-${Date.now()}-${Math.random()}`,
+              image: {
+                type: "IMAGE",
+                id: "#image",
+                imageData: {
+                  name: product.name,
+                  caption: product.name,
+                },
               },
+              objectId: squareItem.id,
             },
-            objectId: squareItem.id,
-          }, imageBlob as any);
+            imageFile: imageBlob as any,
+          });
 
-          if (imageResult.image) {
+          if (imageResult.image?.id) {
             console.log(`  📷 Uploaded image for ${product.name}`);
           }
         } catch (imgError) {
@@ -136,11 +158,11 @@ async function migrateProduct(
       ? parseInt(product.metadata.stock, 10)
       : 0;
 
-    if (stockQuantity > 0 && squareItem.itemData?.variations) {
+    if (stockQuantity > 0 && itemData.variations) {
       // Set inventory for the first variation (base unit)
-      const firstVariation = squareItem.itemData.variations[0];
+      const firstVariation = itemData.variations[0];
       if (firstVariation?.id) {
-        await square.inventory.batchChangeInventory({
+        await square.inventory.batchCreateChanges({
           idempotencyKey: `inv-${product.id}-${Date.now()}`,
           changes: [
             {
