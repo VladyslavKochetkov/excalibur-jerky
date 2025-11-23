@@ -1,10 +1,10 @@
 import type { Products } from "../../../sanity.types";
 import { client } from "./client";
 import { urlFor } from "./image";
-import { getStripeProduct, getStripeProducts } from "@/lib/stripe/products";
+import { getSquareProduct, getSquareProducts } from "@/lib/square/catalog";
 import { createClient } from "next-sanity";
 import { apiVersion, dataset, projectId } from "../env";
-import type Stripe from "stripe";
+import type { CatalogObject } from "square";
 
 /**
  * Generate a random key for Sanity array items
@@ -14,7 +14,7 @@ function generateKey(): string {
 }
 
 export interface SanityPriceVariant {
-  priceId: string;
+  priceId: string; // Square variation ID (kept as priceId for compatibility)
   nickname: string | null;
   amount: number; // in cents
   baseUnits: number;
@@ -22,8 +22,8 @@ export interface SanityPriceVariant {
 
 export interface SanityProduct {
   _id: string;
-  stripeProductId: string;
-  prices: SanityPriceVariant[]; // Array of price variants
+  stripeProductId: string; // Square item ID (kept as stripeProductId for compatibility)
+  prices: SanityPriceVariant[]; // Array of price variants (Square variations)
   name: string;
   price: number; // Base price for display (from first/default price)
   currentlyDiscounted?: number; // Discount percentage (0-100)
@@ -184,21 +184,21 @@ export async function getProductById(id: string): Promise<SanityProduct | null> 
 }
 
 /**
- * Fetch all products with inventory from Stripe
+ * Fetch all products with inventory from Square
  */
 export async function getProductsWithInventory(): Promise<
   ProductWithInventory[]
 > {
   const products = await getAllProducts();
 
-  // Fetch inventory from Stripe for each product
+  // Fetch inventory from Square for each product
   const productsWithInventory = await Promise.all(
     products.map(async (product) => {
-      const stripeProduct = await getStripeProduct(product.stripeProductId);
+      const squareProduct = await getSquareProduct(product.stripeProductId);
 
       return {
         ...product,
-        inventory: stripeProduct?.inventory || {
+        inventory: squareProduct?.inventory || {
           quantity: null,
           available: true,
         },
@@ -233,39 +233,39 @@ export interface MergedProduct {
     };
     alt?: string;
   }>;
-  stripeImages?: string[]; // Additional Stripe image URLs
+  stripeImages?: string[]; // Additional Square image URLs (kept as stripeImages for compatibility)
   isFeatured: boolean;
   inventory: {
     quantity: number | null; // In base units (4oz packages)
     available: boolean;
   };
-  source: "sanity" | "stripe"; // Track where the primary data came from
+  source: "sanity" | "square"; // Track where the primary data came from
 }
 
 /**
- * Fetch all products from both Stripe and Sanity, merging them intelligently
- * - Products in both Stripe and Sanity: Use Sanity data with Stripe inventory
- * - Products only in Stripe: Use Stripe data
+ * Fetch all products from both Square and Sanity, merging them intelligently
+ * - Products in both Square and Sanity: Use Sanity data with Square inventory
+ * - Products only in Square: Use Square data
  */
 export async function getMergedProducts(): Promise<MergedProduct[]> {
   console.log(`\n🔄 [MERGE] Starting product merge...`);
 
   // Fetch from both sources in parallel
-  const [stripeProducts, sanityProducts] = await Promise.all([
-    getStripeProducts(),
+  const [squareProducts, sanityProducts] = await Promise.all([
+    getSquareProducts(),
     getAllProducts(),
   ]);
 
-  console.log(`📦 [MERGE] Fetched ${stripeProducts.length} products from Stripe`);
+  console.log(`📦 [MERGE] Fetched ${squareProducts.length} products from Square`);
   console.log(`📦 [MERGE] Fetched ${sanityProducts.length} products from Sanity`);
 
   console.log(`🔍 [MERGE] Sanity products:`, sanityProducts.map(p => ({
     sanityId: p._id,
-    stripeProductId: p.stripeProductId,
+    squareItemId: p.stripeProductId,
     name: p.name,
   })));
 
-  // Create a map of Sanity products by Stripe Product ID for quick lookup
+  // Create a map of Sanity products by Square Item ID for quick lookup
   const sanityProductMap = new Map(
     sanityProducts.map((product) => [product.stripeProductId, product])
   );
@@ -273,16 +273,16 @@ export async function getMergedProducts(): Promise<MergedProduct[]> {
   console.log(`🗺️ [MERGE] Created map with ${sanityProductMap.size} Sanity products`);
 
   // Merge the products
-  const mergedProducts: MergedProduct[] = stripeProducts.map((stripeProduct) => {
-    const sanityProduct = sanityProductMap.get(stripeProduct.id);
+  const mergedProducts: MergedProduct[] = squareProducts.map((squareProduct) => {
+    const sanityProduct = sanityProductMap.get(squareProduct.id);
 
     if (sanityProduct) {
-      // Product exists in both: use Sanity data with Stripe inventory
-      console.log(`✅ [MERGE] Merging product from Sanity: ${stripeProduct.id} → Sanity ID: ${sanityProduct._id}`);
+      // Product exists in both: use Sanity data with Square inventory
+      console.log(`✅ [MERGE] Merging product from Sanity: ${squareProduct.id} → Sanity ID: ${sanityProduct._id}`);
       return {
         _id: sanityProduct._id,
-        stripeProductId: stripeProduct.id,
-        prices: sanityProduct.prices, // Use prices from Sanity (synced from Stripe)
+        stripeProductId: squareProduct.id,
+        prices: sanityProduct.prices, // Use prices from Sanity (synced from Square)
         name: sanityProduct.name,
         price: sanityProduct.price,
         currentlyDiscounted: sanityProduct.currentlyDiscounted,
@@ -290,33 +290,38 @@ export async function getMergedProducts(): Promise<MergedProduct[]> {
         description: sanityProduct.description,
         primaryImage: sanityProduct.primaryImage,
         additionalImages: sanityProduct.additionalImages,
-        stripeImages: stripeProduct.images, // Keep Stripe images for fallback
+        stripeImages: squareProduct.images, // Keep Square images for fallback
         isFeatured: sanityProduct.isFeatured,
-        inventory: stripeProduct.inventory,
+        inventory: squareProduct.inventory,
         source: "sanity",
       };
     } else {
-      // Product only exists in Stripe: use Stripe data
-      const tempId = `stripe-${stripeProduct.id}`;
-      console.log(`⚠️ [MERGE] Product only in Stripe (not synced to Sanity): ${stripeProduct.id} → Temporary ID: ${tempId}`);
-      const firstImage = stripeProduct.images[0];
+      // Product only exists in Square: use Square data
+      const tempId = `square-${squareProduct.id}`;
+      console.log(`⚠️ [MERGE] Product only in Square (not synced to Sanity): ${squareProduct.id} → Temporary ID: ${tempId}`);
+      const firstImage = squareProduct.images[0];
       return {
         _id: tempId, // Generate a temporary ID
-        stripeProductId: stripeProduct.id,
-        prices: stripeProduct.prices, // Use prices directly from Stripe
-        name: stripeProduct.name,
-        price: stripeProduct.prices[0]?.amount / 100 || 0, // Base price from first variant
+        stripeProductId: squareProduct.id,
+        prices: squareProduct.prices.map(p => ({
+          priceId: p.variationId,
+          nickname: p.nickname,
+          amount: p.amount,
+          baseUnits: p.baseUnits,
+        })), // Use prices directly from Square
+        name: squareProduct.name,
+        price: squareProduct.prices[0]?.amount / 100 || 0, // Base price from first variant
         currentlyDiscounted: undefined,
-        subtitle: stripeProduct.description || undefined,
+        subtitle: squareProduct.description || undefined,
         description: undefined,
         primaryImage: firstImage
-          ? { url: firstImage, alt: stripeProduct.name }
+          ? { url: firstImage, alt: squareProduct.name }
           : undefined,
         additionalImages: undefined,
-        stripeImages: stripeProduct.images.slice(1), // Rest of images
+        stripeImages: squareProduct.images.slice(1), // Rest of images
         isFeatured: false,
-        inventory: stripeProduct.inventory,
-        source: "stripe",
+        inventory: squareProduct.inventory,
+        source: "square",
       };
     }
   });
@@ -451,64 +456,58 @@ async function uploadImageToSanity(
 }
 
 /**
- * Sync a Stripe product to Sanity
- * Creates or updates the product in Sanity based on Stripe data
+ * Sync a Square catalog item to Sanity
+ * Creates or updates the product in Sanity based on Square data
  */
-export async function syncStripeProductToSanity(
-  stripeProduct: Stripe.Product
+export async function syncSquareProductToSanity(
+  squareItem: CatalogObject
 ): Promise<void> {
-  console.log(`\n🔄 [SYNC START] Syncing product ${stripeProduct.id} (${stripeProduct.name}) to Sanity`);
-  const writeClient = getWriteClient();
-
-  console.log(`💰 [SYNC] Fetching prices for product: ${stripeProduct.id}`);
-
-  // Fetch ALL active prices for this product
-  const { default: Stripe } = await import("stripe");
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: "2025-02-24.acacia",
-  });
-
-  const pricesResponse = await stripe.prices.list({
-    product: stripeProduct.id,
-    active: true,
-    limit: 100,
-  });
-
-  if (pricesResponse.data.length === 0) {
-    console.warn(`Product ${stripeProduct.id} has no active prices, skipping sync`);
+  if (!squareItem.itemData || !squareItem.id) {
+    console.warn(`Invalid Square item, skipping sync`);
     return;
   }
 
-  // Import the extractBaseUnits function logic here (we need to duplicate it since it's in a different module)
-  const extractBaseUnits = (price: Stripe.Price, nickname: string | null): number => {
-    if (price.metadata?.base_units) {
-      const parsed = Number.parseInt(price.metadata.base_units, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-    }
-    if (nickname) {
-      const lowerNickname = nickname.toLowerCase().trim();
-      if (lowerNickname.includes("1 lb") || lowerNickname.includes("1lb")) return 4;
-      if (lowerNickname.includes("12oz") || lowerNickname.includes("12 oz")) return 3;
-      if (lowerNickname.includes("8oz") || lowerNickname.includes("8 oz")) return 2;
-      if (lowerNickname.includes("4oz") || lowerNickname.includes("4 oz")) return 1;
+  const itemData = squareItem.itemData;
+  console.log(`\n🔄 [SYNC START] Syncing product ${squareItem.id} (${itemData.name}) to Sanity`);
+  const writeClient = getWriteClient();
+
+  const variations = itemData.variations || [];
+  if (variations.length === 0) {
+    console.warn(`Product ${squareItem.id} has no variations, skipping sync`);
+    return;
+  }
+
+  // Extract base units from variation name
+  const extractBaseUnits = (name: string | null): number => {
+    if (name) {
+      const lowerName = name.toLowerCase().trim();
+      if (lowerName.includes("1 lb") || lowerName.includes("1lb")) return 4;
+      if (lowerName.includes("12oz") || lowerName.includes("12 oz")) return 3;
+      if (lowerName.includes("8oz") || lowerName.includes("8 oz")) return 2;
+      if (lowerName.includes("4oz") || lowerName.includes("4 oz")) return 1;
     }
     return 1;
   };
 
-  // Transform prices to our format
-  const prices = pricesResponse.data.map((price) => ({
-    priceId: price.id,
-    nickname: price.nickname,
-    amount: price.unit_amount || 0,
-    baseUnits: extractBaseUnits(price, price.nickname),
-  }));
+  // Transform variations to our price format
+  const prices = variations
+    .filter(v => v.id && v.itemVariationData)
+    .map((variation) => {
+      const varData = variation.itemVariationData!;
+      return {
+        priceId: variation.id!,
+        nickname: varData.name || null,
+        amount: Number(varData.priceMoney?.amount || 0n),
+        baseUnits: extractBaseUnits(varData.name || null),
+      };
+    });
 
-  console.log(`[Sync] Found ${prices.length} active price(s) for product ${stripeProduct.id}`);
+  console.log(`[Sync] Found ${prices.length} variation(s) for product ${squareItem.id}`);
 
   // Get base price from first price variant
   const basePrice = prices[0]?.amount / 100 || 0;
 
-  console.log(`[Sync] Checking for existing product with Stripe ID: ${stripeProduct.id}`);
+  console.log(`[Sync] Checking for existing product with Square ID: ${squareItem.id}`);
 
   // Check if product already exists in Sanity
   const existingProductQuery = `*[_type == "products" && stripeProductId == $stripeProductId][0] {
@@ -527,13 +526,13 @@ export async function syncStripeProductToSanity(
 
   const existingProduct = await writeClient.fetch<SanityProduct | null>(
     existingProductQuery,
-    { stripeProductId: stripeProduct.id }
+    { stripeProductId: squareItem.id }
   );
 
   if (existingProduct) {
     console.log(`✅ [SYNC] Found existing product in Sanity:`, {
       sanityId: existingProduct._id,
-      stripeProductId: existingProduct.stripeProductId,
+      squareItemId: existingProduct.stripeProductId,
       name: existingProduct.name,
     });
   } else {
@@ -542,12 +541,29 @@ export async function syncStripeProductToSanity(
 
   const productData = {
     _type: "products",
-    stripeProductId: stripeProduct.id,
+    stripeProductId: squareItem.id,
     prices: prices,
-    name: stripeProduct.name,
+    name: itemData.name || "Unnamed Product",
     price: basePrice,
     isFeatured: false, // Default to not featured, can be updated manually in Sanity
   };
+
+  // Get image URLs from Square (need to fetch them separately)
+  let imageUrls: string[] = [];
+  if (itemData.imageIds && itemData.imageIds.length > 0) {
+    try {
+      const { getSquareClient } = await import("@/lib/square/client");
+      const client = getSquareClient();
+      const imageResult = await client.catalog.batchRetrieveCatalogObjects({
+        objectIds: itemData.imageIds,
+      });
+      imageUrls = (imageResult.result.objects || [])
+        .filter(obj => obj.imageData?.url)
+        .map(obj => obj.imageData!.url!);
+    } catch (error) {
+      console.error(`[Sync] Failed to fetch images for ${squareItem.id}:`, error);
+    }
+  }
 
   if (existingProduct) {
     // Update existing product
@@ -557,30 +573,27 @@ export async function syncStripeProductToSanity(
       price: productData.price,
     };
 
-    // Always sync subtitle from Stripe description
-    if (stripeProduct.description) {
-      updateData.subtitle = stripeProduct.description;
-      console.log(`Syncing subtitle from Stripe for product ${stripeProduct.id}`);
+    // Always sync subtitle from Square description
+    if (itemData.description) {
+      updateData.subtitle = itemData.description;
+      console.log(`Syncing subtitle from Square for product ${squareItem.id}`);
     }
 
-    // Note: The rich text 'description' field is managed in Sanity only and is never synced from Stripe
-
-    // Handle primary image sync from Stripe
-    // Always sync the image from Stripe to keep it up to date
-    if (stripeProduct.images && stripeProduct.images.length > 0) {
-      const firstImageUrl = stripeProduct.images[0];
-      console.log(`[Sync] Syncing primary image from Stripe for product ${stripeProduct.id}`);
+    // Handle primary image sync from Square
+    if (imageUrls.length > 0) {
+      const firstImageUrl = imageUrls[0];
+      console.log(`[Sync] Syncing primary image from Square for product ${squareItem.id}`);
 
       const uploadedImage = await uploadImageToSanity(
         firstImageUrl,
-        stripeProduct.name
+        itemData.name || "Product"
       );
 
       if (uploadedImage) {
         updateData.primaryImage = uploadedImage;
-        console.log(`[Sync] ✅ Successfully synced primary image for product ${stripeProduct.id}`);
+        console.log(`[Sync] ✅ Successfully synced primary image for product ${squareItem.id}`);
       } else {
-        console.warn(`[Sync] ⚠️ Failed to sync primary image for product ${stripeProduct.id}`);
+        console.warn(`[Sync] ⚠️ Failed to sync primary image for product ${squareItem.id}`);
       }
     }
 
@@ -589,17 +602,15 @@ export async function syncStripeProductToSanity(
       .set(updateData)
       .commit();
 
-    console.log(`[Sync] ✅ Successfully updated product ${stripeProduct.id} (${existingProduct._id})`);
+    console.log(`[Sync] ✅ Successfully updated product ${squareItem.id} (${existingProduct._id})`);
   } else {
     // Create new product
-    // Use a deterministic _id based on Stripe product ID to prevent duplicates
-    // Note: Must match the temporary ID format in getMergedProducts() (line 288)
-    const documentId = `stripe-${stripeProduct.id}`;
+    const documentId = `square-${squareItem.id}`;
 
     console.log(`🆕 [SYNC] Creating new product with deterministic ID:`, {
       documentId,
-      stripeProductId: stripeProduct.id,
-      name: stripeProduct.name,
+      squareItemId: squareItem.id,
+      name: itemData.name,
     });
 
     const newProduct: any = {
@@ -607,68 +618,68 @@ export async function syncStripeProductToSanity(
       ...productData,
     };
 
-    // Add subtitle from Stripe description
-    if (stripeProduct.description) {
-      newProduct.subtitle = stripeProduct.description;
+    // Add subtitle from Square description
+    if (itemData.description) {
+      newProduct.subtitle = itemData.description;
     }
 
-    // Sync primary image from Stripe
-    if (stripeProduct.images && stripeProduct.images.length > 0) {
-      const firstImageUrl = stripeProduct.images[0];
-      console.log(`[Sync] Syncing primary image from Stripe for new product ${stripeProduct.id}`);
+    // Sync primary image from Square
+    if (imageUrls.length > 0) {
+      const firstImageUrl = imageUrls[0];
+      console.log(`[Sync] Syncing primary image from Square for new product ${squareItem.id}`);
 
       const uploadedImage = await uploadImageToSanity(
         firstImageUrl,
-        stripeProduct.name
+        itemData.name || "Product"
       );
 
       if (uploadedImage) {
         newProduct.primaryImage = uploadedImage;
-        console.log(`[Sync] ✅ Successfully synced primary image for new product ${stripeProduct.id}`);
+        console.log(`[Sync] ✅ Successfully synced primary image for new product ${squareItem.id}`);
       } else {
-        console.warn(`[Sync] ⚠️ Failed to sync primary image for new product ${stripeProduct.id}`);
+        console.warn(`[Sync] ⚠️ Failed to sync primary image for new product ${squareItem.id}`);
       }
     } else {
-      console.warn(`[Sync] ⚠️ No images found in Stripe for product ${stripeProduct.id}`);
+      console.warn(`[Sync] ⚠️ No images found in Square for product ${squareItem.id}`);
     }
 
     // Use createIfNotExists to prevent race conditions
     try {
       await writeClient.createIfNotExists(newProduct);
       console.log(`✅ [SYNC] Successfully created new product in Sanity:`, {
-        stripeProductId: stripeProduct.id,
+        squareItemId: squareItem.id,
         sanityDocumentId: documentId,
-        name: stripeProduct.name,
+        name: itemData.name,
       });
     } catch (error) {
-      console.error(`❌ [SYNC] Failed to create product ${stripeProduct.id}:`, error);
+      console.error(`❌ [SYNC] Failed to create product ${squareItem.id}:`, error);
       throw error;
     }
   }
 
-  console.log(`✅ [SYNC END] Completed sync for product ${stripeProduct.id}\n`);
+  console.log(`✅ [SYNC END] Completed sync for product ${squareItem.id}\n`);
 }
 
 /**
- * Delete (or archive) a product from Sanity when deleted in Stripe
+ * Delete (or archive) a product from Sanity when deleted in Square
  */
-export async function removeStripeProductFromSanity(
-  stripeProductId: string
+export async function removeSquareProductFromSanity(
+  squareItemId: string
 ): Promise<void> {
   const writeClient = getWriteClient();
-  const existingProduct = await getProductByStripeId(stripeProductId);
+  const existingProduct = await getProductByStripeId(squareItemId);
 
   if (existingProduct) {
     // Option 1: Delete the product
     await writeClient.delete(existingProduct._id);
-    console.log(`Deleted product ${stripeProductId} from Sanity`);
+    console.log(`Deleted product ${squareItemId} from Sanity`);
 
     // Option 2: Archive instead of delete (uncomment if preferred)
     // await writeClient
     //   .patch(existingProduct._id)
     //   .set({ archived: true })
     //   .commit();
-    // console.log(`Archived product ${stripeProductId} in Sanity`);
+    // console.log(`Archived product ${squareItemId} in Sanity`);
   }
 }
 
